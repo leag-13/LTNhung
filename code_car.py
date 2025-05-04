@@ -62,7 +62,12 @@ def turn_right():
     GPIO.output(IN2, GPIO.LOW)
     GPIO.output(IN3, GPIO.LOW)  # hoặc GPIO.LOW nếu muốn dừng hẳn bên phải
     GPIO.output(IN4, GPIO.LOW)
-
+#Thêm hàm này:
+def set_speed(speed):
+    speed = int(speed)
+    pwm_a.ChangeDutyCycle(speed)
+    pwm_b.ChangeDutyCycle(speed)
+    return f"Tốc độ: {speed}%"
 # Hàm chính để điều khiển bằng bàn phím
 def main(stdscr):
     # Không hiển thị phím nhấn

@@ -1,6 +1,7 @@
 import cv2
-import numpy as np
-
+import numpy as np, time
+CLASSES = ['unknown', 'left', 'right', 'straight', 'stop', 'walk', 'turn_around']
+traffic_sign_model = cv2.dnn.readNetFromONNX("traffic_sign_classifier.onnx")
 
 # Process phát hiện biển báo
 def process_traffic_sign_loop(g_image_queue):
@@ -82,59 +83,35 @@ def get_boxes_from_mask(mask):
 
 
 def detect_traffic_signs(img, model, draw=None):
-    """Phát hiện biển báo
-    """
-
-    # Các lớp biển báo
-    classes = ['unknown', 'left', 'right', 'straight', 'stop', 'di bo','quay dau']
-
-    # Phát hiện biển báo theo màu sắc
-    mask = filter_signs_by_color(img)
+    mask   = filter_signs_by_color(img)
     bboxes = get_boxes_from_mask(mask)
+    signs  = []
 
-    # Tiền xử lý
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = img.astype(np.float32)
-    img = img / 255.0
+    for (x, y, w, h) in bboxes:
+        sub = img[y:y+h, x:x+w]
+        if sub.shape[0] < 20 or sub.shape[1] < 20: continue
 
-    # Phân loại biển báo dùng CNN
-    signs = []
-    for bbox in bboxes:
-        # Cắt vùng cần phân loại
-        x, y, w, h = bbox
-        sub_image = img[y:y+h, x:x+w]
+        blob = cv2.dnn.blobFromImage(sub, scalefactor=1/255.0,
+                                     size=(128,128), swapRB=True)
+        model.setInput(blob)
+        preds = model.forward()[0]
+        cls   = int(np.argmax(preds))
+        score = float(preds[cls])
 
-        if sub_image.shape[0] < 20 or sub_image.shape[1] < 20:
-            continue
+        if cls == 0 or score < 0.95: continue
+        signs.append([CLASSES[cls], x, y, w, h, score])
 
-        # Tiền xử lý
-        sub_image = cv2.resize(sub_image, (128,128))
-        sub_image = np.expand_dims(sub_image, axis=0)
-
-        # Sử dụng CNN để phân loại biển báo
-        model.setInput(sub_image)
-        preds = model.forward()
-        preds = preds[0]
-        cls = preds.argmax()
-        score = preds[cls]
-
-        # Loại bỏ các vật không phải biển báo - thuộc lớp unknown
-        if cls == 0:
-            continue
-
-        # Loại bỏ các vật có độ tin cậy thấp
-        if score < 0.95:
-            continue
-
-        signs.append([classes[cls], x, y, w, h])
-        
-        # Vẽ các kết quả
         if draw is not None:
-            text = classes[cls] + ' ' + str(round(score, 2))
-            
-            cv2.rectangle(draw, (x, y), (x+w, y+h), (0, 255, 255), 4)
-            cv2.putText(draw, text, (x, y-5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        print(f"{text}\n")    
-    
+            cv2.rectangle(draw, (x,y), (x+w,y+h), (0,255,255), 3)
+            cv2.putText(draw, f"{CLASSES[cls]} {score:.2f}", (x, y-5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
     return signs
+
+# ------------------------------------------------------------
+def detect_single_sign(frame, model, conf_thres=0.5):
+    signs = detect_traffic_signs(frame, model, draw=None)
+    if not signs:
+        return 'unknown', 0.0
+    best = max(signs, key=lambda s: s[-1])         # [-1] giờ là score
+    label, score = best[0], best[-1]
+    return (label, score) if score >= conf_thres else ('unknown', score)
